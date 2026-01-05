@@ -1,0 +1,36 @@
+name: Deploy Cloudflare Pages (Manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      project_name:
+        description: "Pages Name"
+        required: true
+        type: string
+
+      api_token:
+        description: "API Token"
+        required: true
+        type: string
+        
+      account_id:
+        description: "Account ID"
+        required: true
+        type: string
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Deploy Pages Functions
+        uses: cloudflare/pages-action@v1
+        with:
+          projectName: ${{ inputs.project_name }}
+          accountId: ${{ inputs.account_id }}
+          apiToken: ${{ inputs.api_token }}
+          branch: main
+          directory: .
