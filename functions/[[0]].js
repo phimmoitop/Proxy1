@@ -6,18 +6,17 @@ export async function onRequest(context) {
      ========================= */
 
   const cache = caches.default;
-  const cachedResponse = await cache.match(request);
-  if (cachedResponse) {
-    return cachedResponse;
+  const cached = await cache.match(request);
+  if (cached) {
+    return cached;
   }
 
   /* =========================
-     1. PARSE URL (SAU CACHE)
+     1. PARSE URL
      ========================= */
 
-  const fullurl = new URL(request.url);
-  const pathname = fullurl.pathname;
-  const parts = pathname.split('/').filter(Boolean);
+  const url = new URL(request.url);
+  const parts = url.pathname.split('/').filter(Boolean);
 
   if (parts.length < 3) {
     return new Response('URL không hợp lệ.', { status: 400 });
@@ -25,13 +24,10 @@ export async function onRequest(context) {
 
   const part1 = parts[0]; // token (base64)
   const part2 = parts[1]; // owner/repo (base64)
-  const part3 = parts.slice(2).join('/'); // file path (cho phép subfolder)
+  const filePath = parts.slice(2).join('/');
 
   if (part1.length <= 10 || part2.length <= 10) {
-    return new Response(
-      'Cả 2 phần của URL phải có độ dài lớn hơn 10 ký tự.',
-      { status: 400 }
-    );
+    return new Response('URL không hợp lệ.', { status: 400 });
   }
 
   let token, repoPath;
@@ -42,24 +38,19 @@ export async function onRequest(context) {
     return new Response('Token hoặc repo không hợp lệ.', { status: 400 });
   }
 
-  const originUrl =
-    `https://raw.githubusercontent.com/${repoPath}/main/${part3}`;
+  const githubUrl =
+    `https://raw.githubusercontent.com/${repoPath}/main/${filePath}`;
 
   /* =========================
-     2. FETCH ORIGIN (CACHE MISS)
+     2. FETCH GITHUB (CACHE MISS)
      ========================= */
 
-  let originResponse;
-  try {
-    originResponse = await fetch(originUrl, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Accept': 'application/vnd.github.v3.raw',
-      }
-    });
-  } catch (err) {
-    return new Response('Lỗi khi kết nối GitHub.', { status: 500 });
-  }
+  const originResponse = await fetch(githubUrl, {
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Accept': 'application/vnd.github.v3.raw',
+    }
+  });
 
   if (!originResponse.ok) {
     return new Response('Không thể lấy nội dung.', {
@@ -68,17 +59,23 @@ export async function onRequest(context) {
   }
 
   /* =========================
-     3. RESPONSE + STORE CACHE
+     3. PASS-THROUGH RESPONSE
      ========================= */
 
+  // GIỮ NGUYÊN body stream + headers
   const response = new Response(originResponse.body, originResponse);
 
+  // ÉP cache bằng Worker cache (KHÔNG phải CDN)
   response.headers.set(
     'Cache-Control',
     'public, max-age=31536000, immutable'
   );
   response.headers.set('Access-Control-Allow-Origin', '*');
   response.headers.set('X-Content-Type-Options', 'nosniff');
+
+  /* =========================
+     4. STORE WORKER CACHE
+     ========================= */
 
   await cache.put(request, response.clone());
 
